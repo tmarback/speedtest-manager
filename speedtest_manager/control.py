@@ -1,0 +1,136 @@
+from typing import Optional, Union, Tuple, Mapping, Sequence
+
+from .connection import Server, Client, JSONData
+from .jobs import Job, JobManager, IDExistsError
+
+class SpeedtestError( RuntimeError ):
+    pass
+
+class ManagerServer( Server ):
+
+    def __init__( self, manager: JobManager, family: int, addr: Union[Tuple[str, int], str, bytes], workers: int ):
+
+        super().__init__( family, addr, workers )
+        self.manager = manager
+
+    @staticmethod
+    def make_error( cause: str ) -> Tuple[bool, JSONData]:
+
+        return False, { 'cause': cause }
+
+    def handle_new( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
+
+        try:
+            job = Job.from_json( request_data )
+            self.manager.new_job( job )
+        except ValueError:
+            return self.make_error( "The received data is not a valid job." )
+        except IDExistsError as e:
+            return self.make_error( f"There is already a job with the ID '{e.id}'." )
+
+        return True, job.id
+
+    def handle_stop( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
+        
+        if not isinstance( request_data, str ):
+            return self.make_error( "ID must be a string." )
+        id: str = request_data
+
+        try:
+            job = self.manager.stop_job( id )
+        except KeyError:
+            return self.make_error( "There is no job with the given id." )
+
+        return True, job.to_json()
+
+    def handle_delete( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
+        
+        if not isinstance( request_data, str ):
+            return self.make_error( "ID must be a string." )
+        id: str = request_data
+
+        try:
+            job = self.manager.delete_job( id )
+        except KeyError:
+            return self.make_error( "There is no job with the given id." )
+
+        return True, job.to_json()
+
+    def handle_get_job( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
+        
+        if not isinstance( request_data, Mapping ):
+            return self.make_error( "Invalid request data." )
+
+        jobs: Sequence[Job]
+        if request_data is None or isinstance( request_data, bool ):
+            running: Optional[bool] = request_data
+            jobs = list( self.manager.get_jobs( running ) )
+        elif isinstance( request_data, str ):
+            id: str = request_data
+            job = self.manager.get_job( id )
+            if job is None:
+                return self.make_error( "There is no job with the given ID." )
+            else:
+                return True, job
+        else:
+            return self.make_error( "Request data may only be a string ID, a boolean, or null." )
+        
+        return True, jobs
+
+    def handle_get_results( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
+
+        if not isinstance( request_data, str ):
+            return self.make_error( "ID must be a string." )
+        id: str = request_data
+
+        try:
+            results = self.manager.get_results( id )
+        except KeyError:
+            return self.make_error( "There is no job with the given id." )
+
+        return True, results
+
+    @property
+    def get_handlers( self ) -> Mapping[str, Server.Handler]:
+
+        return {
+            'new': self.handle_new,
+            'stop': self.handle_stop,
+            'delete': self.handle_delete,
+            'get_job': self.handle_get_job,
+            'get_results': self.handle_get_results,
+        }
+
+class ManagerClient( Client ):
+
+    def _make_request( self, request_type: str, request_data: JSONData ) -> JSONData:
+
+        success, response = self._request( request_type = request_type, request_data = request_data )
+        if success:
+            return response
+        else:
+            raise SpeedtestError( response['cause'] )
+
+    def new_job( self, job: Job ) -> str:
+        
+        return self._make_request( 'new', job.to_json() )
+
+    def stop_job( self, id: str ) -> Job:
+
+        return Job.from_json( self._make_request( 'stop', id ) )
+
+    def delete_job( self, id: str ) -> Job:
+
+        return Job.from_json( self._make_request( 'delete', id ) )
+
+    def get_job( self, id: str ) -> Job:
+
+        return Job.from_json( self._make_request( 'get_job', id ) )
+
+    def get_jobs( self, running: Optional[bool] ) -> Job:
+
+        return Job.from_json( self._make_request( 'get_job', running ) )
+ 
+    def get_results( self, id: str ) -> JSONData:
+
+        return self._make_request( 'get_results', id )

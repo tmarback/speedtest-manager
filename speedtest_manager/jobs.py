@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Mapping, NamedTuple, Optional, Set, Sequence
 
-from apscheduler.jobstores.base import JobLookupError
+from apscheduler.jobstores.base import JobLookupError, ConflictingIdError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -13,11 +13,12 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Interval, Boolean
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session as SessionClass
 from sqlalchemy.sql.expression import null
 
 from . import speedtest
-from .connection import Data
+from .connection import Data, JSONData
 
 DATETIME_FORMAT: str = "%Y-%m-%dT%H:%M:%S%z"
 
@@ -45,12 +46,12 @@ class Job( NamedTuple, Data ):
         if self.interval.total_seconds() < 1:
             raise ValueError( "The interval must be either at least one second or None." )
 
-    def to_json( self ) -> Mapping:
+    def to_json( self ) -> JSONData:
 
         return self._asdict()
 
     @classmethod
-    def from_json( cls, data ) -> 'Job':
+    def from_json( cls, data: JSONData ) -> 'Job':
 
         try:
             return cls( **data )
@@ -108,6 +109,29 @@ class JobMetadata( Base ):
             end = self.end,
             running = self.running
         )
+
+class IDExistsError( RuntimeError ):
+    """
+    Exception that indicates an attempt to add a new job with an existing ID.
+    """
+
+    def __init__( self, id: str ):
+        """
+        Creates a new instance to represent a conflict with the given ID.
+
+        :param id: The ID that caused the conflict.
+        """
+
+        super().__init__( f"There is already a job with the ID '{id}'." )
+        self._id = id
+
+    @property
+    def id( self ) -> str:
+        """
+        The ID that caused the conflict.
+        """
+
+        return self._id
 
 class JobManager:
     """
@@ -178,7 +202,7 @@ class JobManager:
             f.write( json.dumps( result ) )
             f.write( ',\n' ) # Line break to make it slightly more readable
 
-    def load_results( self, job: Job ) -> Sequence[Mapping]:
+    def load_results( self, job: Job ) -> Sequence[JSONData]:
         """
         Loads the results obtained so far for the given job.
 
@@ -213,29 +237,33 @@ class JobManager:
         Registers the given job.
 
         :param job: The job to register.
+        :raises IDExistsError: if the ID of the given job is already in use.
         """
 
         with self.transaction() as session:
-            new_job = JobMetadata( job )
-            session.add( new_job )
+            try:
+                new_job = JobMetadata( job )
+                session.add( new_job )
 
-            if job.interval:
-                trigger = IntervalTrigger( 
-                    seconds = int( job.interval.total_seconds() ),
-                    start_date = job.start,
-                    end_date = job.end
-                )
-            else:
-                trigger = DateTrigger(
-                    run_date = job.start
-                )
+                if job.interval:
+                    trigger = IntervalTrigger( 
+                        seconds = int( job.interval.total_seconds() ),
+                        start_date = job.start,
+                        end_date = job.end
+                    )
+                else:
+                    trigger = DateTrigger(
+                        run_date = job.start
+                    )
 
-            self.scheduler.add_job( 
-                fun = functools.partial( self, job ),
-                trigger = trigger,
-                id = job.id,
-                name = job.title,
-            )
+                self.scheduler.add_job( 
+                    fun = functools.partial( self, job ),
+                    trigger = trigger,
+                    id = job.id,
+                    name = job.title,
+                )
+            except ( IntegrityError, ConflictingIdError ) as e:
+                raise IDExistsError( job.id ) from e
 
     def get_job( self, id: str ) -> Optional[Job]:
         """
@@ -249,35 +277,20 @@ class JobManager:
             job: JobMetadata = session.query( JobMetadata ).filter_by( id = id ).first()
             return job.export() if job else None
 
-    def get_jobs( self ) -> Set[Job]:
+    def get_jobs( self, running: Optional[bool] = None ) -> Set[Job]:
         """
-        Retrieves all the jobs submitted to the manager.
+        Retrieves the jobs submitted to the manager.
 
+        :param running: If true, only retrieves currently running jobs. If false, only
+                        retrieves completed or stopped jobs. If None, retrieves all jobs.
         :return: The jobs registered in this manager.
         """
 
         with self.transaction() as session:
-            return frozenset( job.export() for job in session.query( JobMetadata ) )
-
-    def get_running_jobs( self ) -> Set[Job]:
-        """
-        Retrieves the jobs in the manager that are still running.
-
-        :return: The currently running jobs.
-        """
-
-        with self.transaction() as session:
-            return frozenset( job.export() for job in session.query( JobMetadata ).filter_by( running = True ) )
-
-    def get_finished_jobs( self ) -> Set[Job]:
-        """
-        Retrieves the jobs in the manager that are no longer running.
-
-        :return: The stopped or finished jobs.
-        """
-
-        with self.transaction() as session:
-            return frozenset( job.export() for job in session.query( JobMetadata ).filter_by( running = False ) )
+            jobs = session.query( JobMetadata )
+            if running is not None:
+                jobs = jobs.filter_by( running = running )
+            return frozenset( job.export() for job in jobs )
     
     def stop_job( self, id: str ) -> Job:
         """
@@ -324,7 +337,7 @@ class JobManager:
             self.output_file( job_exp ).unlink( missing_ok = True )
             return job_exp
 
-    def get_results( self, id: str ) -> Mapping:
+    def get_results( self, id: str ) -> JSONData:
         """
         Retrieves the results of the job identified by the given ID.
 
@@ -340,6 +353,6 @@ class JobManager:
         results = self.load_results( job )
 
         return {
-            'job': job,
+            'job': job.to_json(),
             'results': results
         }

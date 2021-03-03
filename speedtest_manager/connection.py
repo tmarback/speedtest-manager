@@ -9,12 +9,14 @@ from abc import ABC, abstractclassmethod, abstractmethod, abstractstaticmethod
 from collections import namedtuple
 from concurrent.futures import Executor, ThreadPoolExecutor
 from threading import Event, Thread
-from typing import Mapping, NamedTuple, Tuple, Type, TypeVar, Union
+from typing import Mapping, NamedTuple, Tuple, Type, TypeVar, Union, Callable, Sequence
 
 _LOGGER = logging.getLogger( __name__ )
 
 _ENCODING = 'utf-8'
 _SOCK_TYPE = socket.SOCK_STREAM
+
+JSONData = Union[int, float, str, bool, Sequence['JSONData'], Mapping[str,'JSONData'], None]
 
 socket.setdefaulttimeout( 5 ) # Abort connections if they hang for too long
 
@@ -48,7 +50,7 @@ class Connection:
         self.sock = sock
 
     @staticmethod
-    def encode( data: Mapping ) -> bytes:
+    def encode( data: JSONData ) -> bytes:
         """
         Encodes the given JSON data into bytes.
 
@@ -64,7 +66,7 @@ class Connection:
             raise ConnectionError( f"Failed to encode message: '{s}'" ) from e
 
     @staticmethod
-    def decode( data: bytes ) -> Mapping:
+    def decode( data: bytes ) -> JSONData:
         """
         Decodes data (encoded with encode()) back into JSON data.
 
@@ -81,7 +83,7 @@ class Connection:
         except json.JSONDecodeError as e:
             raise ConnectionError( f"Message is not valid JSON: '{s}'" ) from e
 
-    def send( self, data: Mapping ) -> None:
+    def send( self, data: JSONData ) -> None:
         """
         Sends the given JSON data through this connection.
 
@@ -95,7 +97,7 @@ class Connection:
         self.sock.sendall( self.encode( data ) )
         self.sock.shutdown( socket.SHUT_WR ) # Signal end of message
 
-    def receive( self ) -> Mapping:
+    def receive( self ) -> JSONData:
         """
         Receives JSON data through this connection.
 
@@ -121,7 +123,7 @@ class Data( ABC ):
     """
 
     @abstractmethod
-    def to_json( self ) -> Mapping:
+    def to_json( self ) -> JSONData:
         """
         Converts this instance to JSON data.
 
@@ -130,11 +132,12 @@ class Data( ABC ):
         pass
 
     @abstractclassmethod
-    def from_json( cls: Type[T], data: Mapping ) -> T:
+    def from_json( cls: Type[T], data: JSONData ) -> T:
         """
         Restores an instance from JSON data.
 
         :param data: The data to restore from.
+        :raises ValueError: if the given data does not form a valid instance.
         :return: The built instance.
         """
         pass
@@ -145,14 +148,14 @@ class Request( NamedTuple, Data ):
     """
 
     type: str
-    data: Mapping
+    data: JSONData
     
-    def to_json( self ) -> Mapping:
+    def to_json( self ) -> JSONData:
 
         return self._asdict()
 
     @classmethod
-    def from_json( cls, data ) -> 'Request':
+    def from_json( cls, data: JSONData ) -> 'Request':
 
         try:
             return cls( **data )
@@ -165,14 +168,14 @@ class Response( NamedTuple, Data ):
     """
 
     result: bool
-    data: Mapping
+    data: JSONData
 
-    def to_json( self ) -> Mapping:
+    def to_json( self ) -> JSONData:
 
         return self._asdict()
 
     @classmethod
-    def from_json( cls, data ) -> 'Response':
+    def from_json( cls, data: JSONData ) -> 'Response':
 
         try:
             return cls( **data )
@@ -193,9 +196,17 @@ class Server( ABC ):
         self._worker = Thread( target = self._run, name = 'server-main' )
         self._executor: Executor = ThreadPoolExecutor( max_workers = workers, thread_name_prefix = 'server-handler' )
 
+    Handler = Callable[[JSONData], Tuple[bool, JSONData]]
+
+    @property
     @abstractmethod
-    def handle( self, request_type: str, request_data: Mapping ) -> Tuple[bool, Mapping]:
+    def handlers( self ) -> Mapping[str, Handler]:
         pass
+
+    def handle( self, request_type: str, request_data: JSONData ) -> Tuple[bool, JSONData]:
+        
+        handler = self.handlers[request_type]
+        return handler( request_data )
 
     def start( self ) -> None:
         
@@ -217,7 +228,7 @@ class Server( ABC ):
             with client_socket:
                 conn = Connection( client_socket )
                 # Receive request
-                msg: Mapping = conn.receive()
+                msg = conn.receive()
                 _LOGGER.debug( "Received message: '%s'", msg )
                 # Handle request
                 request = Request.from_json( msg )
@@ -269,7 +280,7 @@ class Client:
         self._family = family
         self._addr = addr
 
-    def _request( self, request_type: str, request_data: Mapping ) -> Tuple[bool, Mapping]:
+    def _request( self, request_type: str, request_data: JSONData ) -> Tuple[bool, JSONData]:
 
         request = Request( type = request_type, data = request_data )
         with socket.socket( family = self._family, type = _SOCK_TYPE ) as sock:
