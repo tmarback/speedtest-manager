@@ -91,7 +91,7 @@ class ManagerServer( Server ):
         return True, results
 
     @property
-    def get_handlers( self ) -> Mapping[str, Server.Handler]:
+    def handlers( self ) -> Mapping[str, Server.Handler]:
 
         return {
             'new': self.handle_new,

@@ -1,9 +1,10 @@
 import functools
 import json
 from contextlib import contextmanager
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Mapping, NamedTuple, Optional, Set, Sequence
+from typing import Optional, Set, Sequence
 
 from apscheduler.jobstores.base import JobLookupError, ConflictingIdError
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,7 +23,8 @@ from .connection import Data, JSONData
 
 DATETIME_FORMAT: str = "%Y-%m-%dT%H:%M:%S%z"
 
-class Job( NamedTuple, Data ):
+@dataclass( frozen = True )
+class Job( Data ):
     """
     Represents a job submitted to the system.
     """
@@ -34,11 +36,10 @@ class Job( NamedTuple, Data ):
     interval: Optional[timedelta]
     start: Optional[datetime]
     end: Optional[datetime]
-    running: Optional[bool]
+    running: Optional[bool] = None
 
-    def __init__( self, *args, **kwargs ):
+    def __post_init__( self ):
 
-        super().__init__( *args, **kwargs )
         if self.id is None:
             raise ValueError( "The job ID must be specified." )
         if self.server_id is None and self.server_name is None:
@@ -48,7 +49,7 @@ class Job( NamedTuple, Data ):
 
     def to_json( self ) -> JSONData:
 
-        return self._asdict()
+        return asdict( self )
 
     @classmethod
     def from_json( cls, data: JSONData ) -> 'Job':
@@ -150,7 +151,7 @@ class JobManager:
         self.storage = datadir / 'results'
         self.storage.mkdir( mode = 0o770, exist_ok = True )
 
-        self.engine = create_engine( database_path )
+        self.engine = create_engine( f'sqlite:///{database_path}' )
         self.Session = sessionmaker( bind = self.engine )
 
         jobstores = {

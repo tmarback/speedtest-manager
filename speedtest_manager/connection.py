@@ -5,11 +5,11 @@ Provides wrappers for the network layer.
 import json
 import logging
 import socket
-from abc import ABC, abstractclassmethod, abstractmethod, abstractstaticmethod
-from collections import namedtuple
+from abc import ABC, abstractclassmethod, abstractmethod
 from concurrent.futures import Executor, ThreadPoolExecutor
+from dataclasses import dataclass, asdict
 from threading import Event, Thread
-from typing import Mapping, NamedTuple, Tuple, Type, TypeVar, Union, Callable, Sequence
+from typing import Mapping, Tuple, Type, TypeVar, Union, Callable, Sequence
 
 _LOGGER = logging.getLogger( __name__ )
 
@@ -142,7 +142,8 @@ class Data( ABC ):
         """
         pass
 
-class Request( NamedTuple, Data ):
+@dataclass( frozen = True )
+class Request( Data ):
     """
     A request from a client to the server.
     """
@@ -152,7 +153,7 @@ class Request( NamedTuple, Data ):
     
     def to_json( self ) -> JSONData:
 
-        return self._asdict()
+        return asdict( self )
 
     @classmethod
     def from_json( cls, data: JSONData ) -> 'Request':
@@ -162,7 +163,8 @@ class Request( NamedTuple, Data ):
         except ( KeyError, TypeError ) as e:
             raise ConnectionError( f"JSON does not represent a valid request: '{data}'" ) from e
 
-class Response( NamedTuple, Data ):
+@dataclass( frozen = True )
+class Response( Data ):
     """
     A response from the server to the client.
     """
@@ -172,7 +174,7 @@ class Response( NamedTuple, Data ):
 
     def to_json( self ) -> JSONData:
 
-        return self._asdict()
+        return asdict( self )
 
     @classmethod
     def from_json( cls, data: JSONData ) -> 'Response':
