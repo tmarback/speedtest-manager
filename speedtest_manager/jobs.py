@@ -164,7 +164,22 @@ class JobManager:
             'max_instances': 1
         }
         self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults )
+
+    def start( self ):
+        """
+        Starts processing jobs.
+        """
+
         self.scheduler.start()
+
+    def shutdown( self, wait: bool = True ):
+        """
+        Shuts down the manager, stopping job processing.
+
+        :param wait: If True, waits for all currently executing jobs to finish before returning.
+        """
+
+        self.scheduler.shutdown( wait = wait )
 
     def output_file( self, job: Job ) -> Path:
         """

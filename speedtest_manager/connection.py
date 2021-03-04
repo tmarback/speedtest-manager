@@ -213,12 +213,13 @@ class Server( ABC ):
         _LOGGER.info( "Server start requested" )
         self._worker.start()
 
-    def stop( self ) -> None:
+    def stop( self, wait: bool = True ) -> None:
 
         _LOGGER.info( "Server stop requested" )
         self._stop.set()
-        self._worker.join()
-        self._executor.shutdown()
+        if wait:
+            self._worker.join()
+        self._executor.shutdown( wait = wait )
         _LOGGER.info( "Server stopped" )
 
     def _handle_client( self, client_socket: socket.socket ) -> None:
