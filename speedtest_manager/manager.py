@@ -5,8 +5,6 @@ import socket
 import sys
 from pathlib import Path
 
-from pkg_resources import require
-
 from .jobs import JobManager
 from .control import ManagerServer
 
@@ -25,6 +23,7 @@ def shutdown( *_ ) -> None:
 def main() -> None:
 
     signal.signal( signal.SIGTERM, shutdown ) # Set up shutdown handler
+    signal.signal( signal.SIGINT,  shutdown )
 
     parser = argparse.ArgumentParser( description = "Main server process for a scheduled Speedtest tester." )
     parser.add_argument( '-d', '--datadir', default = DEFAULT_DATADIR, type = Path, help = "The directory where data is stored." )

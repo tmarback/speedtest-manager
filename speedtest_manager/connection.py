@@ -8,6 +8,7 @@ import socket
 from abc import ABC, abstractclassmethod, abstractmethod
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from threading import Event, Thread
 from typing import Mapping, Tuple, Type, TypeVar, Union, Callable, Sequence
 
@@ -269,6 +270,9 @@ class Server( ABC ):
                     self._executor.submit( self._handle_client, client_socket )
                 except socket.timeout:
                     pass # Timeout only to check if stop requested
+
+        if self._family == socket.AF_UNIX:
+            Path( self._addr ).unlink() # Clean up the socket
 
 class ServerError( Exception ):
 
