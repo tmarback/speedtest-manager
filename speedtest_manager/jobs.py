@@ -1,5 +1,6 @@
 import functools
 import json
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
@@ -22,6 +23,8 @@ from . import speedtest
 from .connection import Data, JSONData
 
 DATETIME_FORMAT: str = "%Y-%m-%dT%H:%M:%S%z"
+
+_LOGGER = logging.getLogger( __name__ )
 
 @dataclass( frozen = True )
 class Job( Data ):
@@ -146,6 +149,8 @@ class JobManager:
         :param datadir: The path of the directory where data should be stored.
         """
 
+        _LOGGER.debug( "Initializing manager." )
+
         database_path = datadir / 'jobs.db'
 
         self.storage = datadir / 'results'
@@ -166,12 +171,16 @@ class JobManager:
         }
         self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults )
 
+        _LOGGER.debug( "Manager initialized." )
+
     def start( self ):
         """
         Starts processing jobs.
         """
 
+        _LOGGER.info( "Manager starting." )
         self.scheduler.start()
+        _LOGGER.debug( "Manager started." )
 
     def shutdown( self, wait: bool = True ):
         """
@@ -180,7 +189,9 @@ class JobManager:
         :param wait: If True, waits for all currently executing jobs to finish before returning.
         """
 
+        _LOGGER.info( "Manager stopping." )
         self.scheduler.shutdown( wait = wait )
+        _LOGGER.debug( "Manager stopped." )
 
     def output_file( self, job: Job ) -> Path:
         """
@@ -198,6 +209,8 @@ class JobManager:
 
         :param job: The job to execute.
         """
+
+        _LOGGER.debug( "Running job '%s'.", job.id )
 
         timestamp = datetime.now()
         try:
@@ -217,6 +230,8 @@ class JobManager:
         with open( self.output_file( job ), 'a' ) as f:
             f.write( json.dumps( result ) )
             f.write( ',\n' ) # Line break to make it slightly more readable
+
+        _LOGGER.debug( "Finished running job '%s'.", job.id )
 
     def load_results( self, job: Job ) -> Sequence[JSONData]:
         """
@@ -256,6 +271,10 @@ class JobManager:
         :raises IDExistsError: if the ID of the given job is already in use.
         """
 
+        _LOGGER.info( "Registering job '%s'.", job.id )
+        _LOGGER.debug( "Job '%s' (%s) has target %d|'%s', starts at %s and ends at %s with interval %s.",
+            job.id, job.title, job.server_id, job.server_name, job.start, job.end, job.interval
+        )
         with self.transaction() as session:
             try:
                 new_job = JobMetadata( job )
@@ -279,6 +298,7 @@ class JobManager:
                     name = job.title,
                 )
             except ( IntegrityError, ConflictingIdError ) as e:
+                _LOGGER.debug( "Attempted to register duplicate ID '%s'.", job.id )
                 raise IDExistsError( job.id ) from e
 
     def get_job( self, id: str ) -> Optional[Job]:
@@ -321,6 +341,7 @@ class JobManager:
         try:
             self.scheduler.remove_job( id )
         except JobLookupError:
+            _LOGGER.debug( "Attempted to stop job with non-existent ID '%s'.", id )
             raise KeyError( f"There are no jobs with the id '{id}'" )
 
         with self.transaction() as session:
@@ -341,11 +362,13 @@ class JobManager:
         try:
             self.scheduler.remove_job( id )
         except JobLookupError:
+            _LOGGER.debug( "Deleting job that was already stopped '%s'.", id )
             pass # Was stopped beforehand
 
         with self.transaction() as session:
             job: JobMetadata = session.query( JobMetadata ).filter_by( id = id ).first()
             if job is None:
+                _LOGGER.debug( "Attempted to delete job with non-existent ID '%s'.", id )
                 raise KeyError( f"There are no jobs with the id '{id}'" )
             session.delete( job )
 
@@ -364,6 +387,7 @@ class JobManager:
 
         job = self.get_job( id )
         if job is None:
+            _LOGGER.debug( "Attempted to get results of job with non-existent ID '%s'.", id )
             raise KeyError( f"There are no jobs with the id '{id}'" )
 
         results = self.load_results( job )
