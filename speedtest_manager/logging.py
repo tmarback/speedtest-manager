@@ -23,7 +23,7 @@ def setup_logging( console_output: bool, logdir: Optional[Path], level: int = lo
     root.setLevel( level )
 
     formatter = logging.Formatter(
-        fmt      = '[{asctime}] ({threadName}::{name}) {levelname} - {message}',
+        fmt      = '[{asctime}] ({levelname}) {threadName}::{name} - {message}',
         datefmt = '%Y-%m-%d %H:%M:%S',
         style    = '{',
         validate = True

@@ -1,6 +1,7 @@
 import functools
 import json
 import logging
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -204,10 +205,13 @@ class JobManager:
                 'result': output
             }
         except speedtest.TestError as e:
+            _LOGGER.exception( "Test could not be completed." )
             result = {
                 'success': False,
                 'timestamp': timestamp.isoformat(),
-                'error': str( e )
+                'error': str( e ),
+                'stdout': e.stdout,
+                'stderr': e.stderr,
             }
 
         with open( cls.get_instance().output_file( job ), 'a' ) as f:
@@ -224,6 +228,12 @@ class JobManager:
         """
 
         _LOGGER.debug( "Initializing manager." )
+        try:
+            _LOGGER.info( "Using %s", speedtest.get_version() ) # Also implicitly check installed
+        except speedtest.TestError:
+            _LOGGER.exception( "Obtaining Speedtest CLI version caused an error." )
+            _LOGGER.critical( "The Speedtest CLI could not accessed. Is it installed in this system?" )
+            sys.exit( 1 )
 
         database_path = datadir / 'jobs.db'
 

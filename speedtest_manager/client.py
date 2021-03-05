@@ -28,7 +28,7 @@ def parse_interval( s: str ) -> timedelta:
     m = INTERVAL_PATTERN.match( s )
     if m is None:
         raise ValueError( f"Not a valid interval: {s}" )
-    value =int( m.group( 1 ) )
+    value = int( m.group( 1 ) )
     unit = m.group( 2 )
     if unit == 's':
         return timedelta( seconds = value )

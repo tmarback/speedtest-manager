@@ -77,6 +77,7 @@ def get_version() -> str:
     """
     Retrieves the version string for the currently accessible speedtest command.
 
+    :raises TestError: if an error occured while executing the command.
     :return: The version line (the first line of the command with the --version argument).
     """
 
