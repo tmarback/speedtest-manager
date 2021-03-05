@@ -2,27 +2,25 @@ import functools
 import json
 import logging
 from contextlib import contextmanager
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Set, Sequence
 
+import pytz
+from apscheduler import events
 from apscheduler.jobstores.base import JobLookupError, ConflictingIdError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Interval, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, TIMESTAMP, Interval, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session as SessionClass
-from sqlalchemy.sql.expression import null
 
 from . import speedtest
 from .connection import Data, JSONData
-
-DATETIME_FORMAT: str = "%Y-%m-%dT%H:%M:%S%z"
 
 _LOGGER = logging.getLogger( __name__ )
 
@@ -40,6 +38,7 @@ class Job( Data ):
     start: Optional[datetime]
     end: Optional[datetime]
     running: Optional[bool] = None
+    created: Optional[datetime] = None
 
     def __post_init__( self ):
 
@@ -47,18 +46,38 @@ class Job( Data ):
             raise ValueError( "The job ID must be specified." )
         if self.server_id is None and self.server_name is None:
             raise ValueError( "Either the server ID or hostname must be specified." )
-        if self.interval.total_seconds() < 1:
+        if self.interval is not None and self.interval.total_seconds() < 1:
             raise ValueError( "The interval must be either at least one second or None." )
 
     def to_json( self ) -> JSONData:
 
-        return asdict( self )
+        return {
+            'id': self.id,
+            'title': self.title,
+            'server_id': self.server_id,
+            'server_name': self.server_name,
+            'interval': int( self.interval.total_seconds() ) if self.interval is not None else None,
+            'start': self.start.astimezone( pytz.utc ).isoformat() if self.start is not None else None,
+            'end': self.end.astimezone( pytz.utc ).isoformat() if self.end is not None else None,
+            'running': self.running,
+            'created': self.created.isoformat() if self.created is not None else None,
+        }
 
     @classmethod
     def from_json( cls, data: JSONData ) -> 'Job':
 
         try:
-            return cls( **data )
+            return cls(
+                id = data['id'],
+                title = data['title'],
+                server_id = data['server_id'],
+                server_name = data['server_name'],
+                interval = timedelta( seconds = data['interval'] ) if data['interval'] is not None else None,
+                start = datetime.fromisoformat( data['start'] ).astimezone( pytz.utc ) if data['start'] is not None else None,
+                end = datetime.fromisoformat( data['end'] ).astimezone( pytz.utc ) if data['end'] is not None else None,
+                running = data['running'],
+                created = datetime.fromisoformat( data['created'] ) if data['created'] is not None else None,
+            )
         except ( KeyError, TypeError ) as e:
             raise ValueError( f"JSON does not represent a valid job: '{data}'" ) from e
 
@@ -75,9 +94,10 @@ class JobMetadata( Base ):
     server_id = Column( Integer )
     server_name = Column( String )
     interval = Column( Interval )
-    start = Column( DateTime )
-    end = Column( DateTime )
+    start = Column( TIMESTAMP( timezone = True ) )
+    end = Column( TIMESTAMP( timezone = True ) )
     running = Column( Boolean, nullable = False, default = True )
+    created = Column( TIMESTAMP( timezone = True ), default = functools.partial( datetime.now, pytz.utc ) )
 
     def __init__( self, job: Job ):
         """
@@ -111,7 +131,8 @@ class JobMetadata( Base ):
             interval = self.interval,
             start = self.start,
             end = self.end,
-            running = self.running
+            running = self.running,
+            created = self.created,
         )
 
 class IDExistsError( RuntimeError ):
@@ -142,6 +163,53 @@ class JobManager:
     Central overseer that manages the measurement jobs.
     """
 
+    _instance: Optional['JobManager'] = None
+
+    @classmethod
+    def initialize( cls, datadir: Path ) -> 'JobManager':
+
+        if cls._instance is None:
+            cls._instance = JobManager( datadir )
+        return cls._instance
+
+    @classmethod
+    def get_instance( cls ) -> 'JobManager':
+
+        if cls._instance is None:
+            raise RuntimeError( "Attempted to obtain manager before initializing it." )
+        return cls._instance
+
+    @classmethod
+    def run_job( cls, job: Job ) -> None:
+        """
+        Executes the specified job once.
+
+        :param job: The job to execute.
+        """
+
+        _LOGGER.debug( "Running job '%s'.", job.id )
+
+        timestamp = datetime.now( pytz.utc )
+        try:
+            output = speedtest.run_test( server_id = job.server_id, server_name = job.server_name )
+            result = {
+                'success': True,
+                'time': timestamp.isoformat(),
+                'result': output
+            }
+        except speedtest.TestError as e:
+            result = {
+                'success': False,
+                'timestamp': timestamp.isoformat(),
+                'error': str( e )
+            }
+
+        with open( cls.get_instance().output_file( job ), 'a' ) as f:
+            f.write( json.dumps( result ) )
+            f.write( ',\n' ) # Line break to make it slightly more readable
+
+        _LOGGER.debug( "Finished running job '%s'.", job.id )
+
     def __init__( self, datadir: Path ):
         """
         Initializes a new manager that uses the specified directory to store data.
@@ -157,6 +225,7 @@ class JobManager:
         self.storage.mkdir( mode = 0o770, exist_ok = True )
 
         self.engine = create_engine( f'sqlite:///{database_path}' )
+        Base.metadata.create_all( self.engine )
         self.Session = sessionmaker( bind = self.engine )
 
         jobstores = {
@@ -170,6 +239,7 @@ class JobManager:
             'max_instances': 1
         }
         self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults )
+        self.scheduler.add_listener( self.job_stopped, mask = events.EVENT_JOB_REMOVED )
 
         _LOGGER.debug( "Manager initialized." )
 
@@ -193,6 +263,13 @@ class JobManager:
         self.scheduler.shutdown( wait = wait )
         _LOGGER.debug( "Manager stopped." )
 
+    def job_stopped( self, event: events.JobEvent ) -> None:
+
+        id: str = event.job_id
+        with self.transaction() as session:
+            job: JobMetadata = session.query( JobMetadata ).filter_by( id = id ).first()
+            job.running = False
+
     def output_file( self, job: Job ) -> Path:
         """
         Determines the path to the output file of the job identified by the given ID.
@@ -203,36 +280,6 @@ class JobManager:
 
         return self.storage / f'{job.id}.result' # Not really proper JSON
 
-    def run_job( self, job: Job ) -> None:
-        """
-        Executes the specified job once.
-
-        :param job: The job to execute.
-        """
-
-        _LOGGER.debug( "Running job '%s'.", job.id )
-
-        timestamp = datetime.now()
-        try:
-            output = speedtest.run_test( server_id = job.server_id, server_name = job.server_name )
-            result = {
-                'success': True,
-                'time': timestamp,
-                'result': output
-            }
-        except speedtest.TestError as e:
-            result = {
-                'success': False,
-                'timestamp': timestamp,
-                'error': str( e )
-            }
-
-        with open( self.output_file( job ), 'a' ) as f:
-            f.write( json.dumps( result ) )
-            f.write( ',\n' ) # Line break to make it slightly more readable
-
-        _LOGGER.debug( "Finished running job '%s'.", job.id )
-
     def load_results( self, job: Job ) -> Sequence[JSONData]:
         """
         Loads the results obtained so far for the given job.
@@ -241,7 +288,11 @@ class JobManager:
         :return: The results of the given job, as a list of JSON objects.
         """
 
-        with open( self.output_file( job ), 'r' ) as f:
+        output_file = self.output_file( job )
+        if not output_file.exists():
+            return []
+
+        with open( output_file, 'r' ) as f:
             results = f.read()
         results = '[' + results[:-2] + ']' # Remove trailing comma and line break and add brackets
 
@@ -277,27 +328,33 @@ class JobManager:
         )
         with self.transaction() as session:
             try:
+                if session.query( JobMetadata ).filter_by( id = job.id ).count() > 0:
+                    raise IDExistsError( "There is already metadata for the given ID." )
+
                 new_job = JobMetadata( job )
                 session.add( new_job )
 
                 if job.interval:
+                    _LOGGER.debug( "Creating an interval-triggered job." )
                     trigger = IntervalTrigger( 
                         seconds = int( job.interval.total_seconds() ),
-                        start_date = job.start,
+                        start_date = job.start if job.start is not None else datetime.now(),
                         end_date = job.end
                     )
                 else:
+                    _LOGGER.debug( "Creating a date-triggered job." )
                     trigger = DateTrigger(
                         run_date = job.start
                     )
 
                 self.scheduler.add_job( 
-                    fun = functools.partial( self, job ),
+                    func = JobManager.run_job,
+                    args = [ job ],
                     trigger = trigger,
                     id = job.id,
                     name = job.title,
                 )
-            except ( IntegrityError, ConflictingIdError ) as e:
+            except ( IDExistsError, ConflictingIdError ) as e:
                 _LOGGER.debug( "Attempted to register duplicate ID '%s'.", job.id )
                 raise IDExistsError( job.id ) from e
 
@@ -341,13 +398,9 @@ class JobManager:
         try:
             self.scheduler.remove_job( id )
         except JobLookupError:
-            _LOGGER.debug( "Attempted to stop job with non-existent ID '%s'.", id )
-            raise KeyError( f"There are no jobs with the id '{id}'" )
-
-        with self.transaction() as session:
-            job: JobMetadata = session.query( JobMetadata ).filter_by( id = id ).first()
-            job.running = False
-            return job.export()
+            _LOGGER.debug( "Attempted to stop job ID '%s', but it is not running.", id )
+            raise KeyError( f"There are no currently running jobs with the id '{id}'" )
+        return self.get_job( id )
 
     def delete_job( self, id: str ) -> Job:
         """
@@ -360,8 +413,8 @@ class JobManager:
         """
 
         try:
-            self.scheduler.remove_job( id )
-        except JobLookupError:
+            self.stop_job( id )
+        except KeyError:
             _LOGGER.debug( "Deleting job that was already stopped '%s'.", id )
             pass # Was stopped beforehand
 

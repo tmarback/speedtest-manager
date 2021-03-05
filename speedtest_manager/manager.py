@@ -35,7 +35,7 @@ def main() -> None:
     signal.signal( signal.SIGINT,  shutdown )
 
     parser = argparse.ArgumentParser( description = "Main server process for a scheduled Speedtest tester." )
-    parser.add_argument( '--version', action = 'version', version = 'Speedtest Manager 0.1.0', help = "Display the current version and exit" )
+    parser.add_argument( '--version', action = 'version', version = 'Speedtest Manager Server 0.1.0', help = "Display the current version and exit" )
     parser.add_argument( '-d', '--datadir', default = DEFAULT_DATADIR, type = Path, help = "The directory where data is stored" )
     parser.add_argument( '-w', '--workers', default = 5,               type = int,  help = "The number of workers to use for handling client connections" )
     
@@ -89,7 +89,7 @@ def main() -> None:
     host: str = args.host
     port: int = args.port
     if family == socket.AF_UNIX:
-        address = str( host if host is not None else datadir / 'server.sock' )
+        address = str( datadir / ( host if host is not None else 'server.sock' ) )
     elif family == socket.AF_INET:
         address = ( host if host is not None else '127.0.0.1', port )
     elif family == socket.AF_INET6:
@@ -100,7 +100,7 @@ def main() -> None:
     workers: int = args.workers
 
     global manager, server
-    manager = JobManager( datadir )
+    manager = JobManager.initialize( datadir )
     server = ManagerServer( manager, family = family, addr = address, workers = workers )
 
     manager.start()
