@@ -24,6 +24,12 @@ from .connection import Data, JSONData
 
 _LOGGER = logging.getLogger( __name__ )
 
+def _date_to_str( date: Optional[datetime] ) -> Optional[str]:
+    return date.astimezone( pytz.utc ).isoformat() if date is not None else None
+
+def _str_to_date( date: Optional[str] ) -> Optional[datetime]:
+    return datetime.fromisoformat( date ).astimezone( pytz.utc ) if date is not None else None
+
 @dataclass( frozen = True )
 class Job( Data ):
     """
@@ -57,10 +63,10 @@ class Job( Data ):
             'server_id': self.server_id,
             'server_name': self.server_name,
             'interval': int( self.interval.total_seconds() ) if self.interval is not None else None,
-            'start': self.start.astimezone( pytz.utc ).isoformat() if self.start is not None else None,
-            'end': self.end.astimezone( pytz.utc ).isoformat() if self.end is not None else None,
+            'start': _date_to_str( self.start ),
+            'end': _date_to_str( self.end ),
             'running': self.running,
-            'created': self.created.isoformat() if self.created is not None else None,
+            'created': _date_to_str( self.created ),
         }
 
     @classmethod
@@ -73,10 +79,10 @@ class Job( Data ):
                 server_id = data['server_id'],
                 server_name = data['server_name'],
                 interval = timedelta( seconds = data['interval'] ) if data['interval'] is not None else None,
-                start = datetime.fromisoformat( data['start'] ).astimezone( pytz.utc ) if data['start'] is not None else None,
-                end = datetime.fromisoformat( data['end'] ).astimezone( pytz.utc ) if data['end'] is not None else None,
+                start = _str_to_date( data['start'] ),
+                end = _str_to_date( data['end'] ),
                 running = data['running'],
-                created = datetime.fromisoformat( data['created'] ) if data['created'] is not None else None,
+                created = _str_to_date( data['created'] ),
             )
         except ( KeyError, TypeError ) as e:
             raise ValueError( f"JSON does not represent a valid job: '{data}'" ) from e
@@ -97,7 +103,7 @@ class JobMetadata( Base ):
     start = Column( TIMESTAMP( timezone = True ) )
     end = Column( TIMESTAMP( timezone = True ) )
     running = Column( Boolean, nullable = False, default = True )
-    created = Column( TIMESTAMP( timezone = True ), default = functools.partial( datetime.now, pytz.utc ) )
+    created = Column( TIMESTAMP( timezone = True ), nullable = False, default = functools.partial( datetime.now, pytz.utc ) )
 
     def __init__( self, job: Job ):
         """
@@ -113,7 +119,7 @@ class JobMetadata( Base ):
             server_name = job.server_name,
             interval = job.interval,
             start = job.start,
-            end = job.end
+            end = job.end,
         )
 
     def export( self ) -> Job:

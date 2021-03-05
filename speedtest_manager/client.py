@@ -6,6 +6,7 @@ import re
 import socket
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Set
 
 from dateutil import parser
 import pytz
@@ -17,7 +18,7 @@ from .jobs import Job
 DEFAULT_DATADIR = Path( os.environ["HOME"] ) / '.speedtest-manager'
 
 LOGLEVELS = frozenset( logging._nameToLevel.keys() )
-DEFAULT_LOGLEVEL = logging.getLevelName( logging.NOTSET )
+DEFAULT_LOGLEVEL = logging.getLevelName( logging.WARNING )
 VERBOSE_LOGLEVEL = logging.getLevelName( logging.DEBUG )
 
 INTERVAL_PATTERN = re.compile( r'(\d+)([smhd])' )
@@ -107,6 +108,61 @@ def main() -> None:
         print( f"Created job with ID '{id}'." )
 
     new_job_parser.set_defaults( func = new_job )
+
+    ##### Get single job
+
+    get_job_parser = subparsers.add_parser( 'job', help = "Describe a job", description = "Retrieves information about a single job." )
+
+    get_job_parser.add_argument( 'id', type = str, help = 'The ID of the job' )
+
+    def get_job( client: ManagerClient, args ) -> None:
+
+        job: Job = client.get_job( args.id )
+        print( json.dumps( job.to_json() ) )
+
+    get_job_parser.set_defaults( func = get_job )
+
+    ##### Get job list
+
+    get_jobs_parser = subparsers.add_parser( 'jobs', help = "List registered jobs", description = "Retrieves information about all registered job." )
+
+    get_job_filter_group = get_jobs_parser.add_mutually_exclusive_group( required = False )
+
+    get_job_filter_group.add_argument( '-r', '--running', action = 'store_const', const = True,  dest = 'running', help = "Only retrieve running jobs" )
+    get_job_filter_group.add_argument( '-s', '--stopped', action = 'store_const', const = False, dest = 'running', help = "Only retrieve stopped jobs" )
+
+    def get_jobs( client: ManagerClient, args ) -> None:
+
+        jobs: Set[Job] = client.get_jobs( args.running )
+        print( json.dumps( { 'jobs': [ job.to_json() for job in jobs ] } ) )
+
+    get_jobs_parser.set_defaults( func = get_jobs, running = None )
+
+    ##### Stop job
+
+    stop_job_parser = subparsers.add_parser( 'stop', help = "Stops a running job", description = "Stops a running job before its scheduled finish date." )
+
+    stop_job_parser.add_argument( 'id', type = str, help = 'The ID of the job' )
+
+    def stop_job( client: ManagerClient, args ) -> None:
+
+        job: Job = client.stop_job( args.id )
+        print( json.dumps( job.to_json() ) )
+
+    stop_job_parser.set_defaults( func = stop_job )
+
+    ##### Delete job
+
+    delete_job_parser = subparsers.add_parser( 'delete', help = "Deletes a job", description = "Deletes a job from the system, including its results." )
+
+    delete_job_parser.add_argument( 'id', type = str, help = 'The ID of the job' )
+
+    def delete_job( client: ManagerClient, args ) -> None:
+
+        job: Job = client.delete_job( args.id )
+        print( json.dumps( job.to_json() ) )
+
+    delete_job_parser.set_defaults( func = delete_job )
 
     ##### Get results
 

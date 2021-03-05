@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Union, Tuple, Mapping, Sequence
+from typing import Optional, Union, Tuple, Mapping, Sequence, Set
 
 from .connection import Server, Client, JSONData
 from .jobs import Job, JobManager, IDExistsError
@@ -43,7 +43,7 @@ class ManagerServer( Server ):
         try:
             job = self.manager.stop_job( id )
         except KeyError:
-            return self.make_error( "There is no job with the given id." )
+            return self.make_error( "There is no currently running job with the given ID." )
 
         return True, job.to_json()
 
@@ -56,30 +56,24 @@ class ManagerServer( Server ):
         try:
             job = self.manager.delete_job( id )
         except KeyError:
-            return self.make_error( "There is no job with the given id." )
+            return self.make_error( "There is no job with the given ID." )
 
         return True, job.to_json()
 
     def handle_get_job( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
         
-        if not isinstance( request_data, Mapping ):
-            return self.make_error( "Invalid request data." )
-
-        jobs: Sequence[Job]
         if request_data is None or isinstance( request_data, bool ):
             running: Optional[bool] = request_data
-            jobs = list( self.manager.get_jobs( running ) )
+            return True, [ job.to_json() for job in self.manager.get_jobs( running ) ]
         elif isinstance( request_data, str ):
             id: str = request_data
             job = self.manager.get_job( id )
             if job is None:
                 return self.make_error( "There is no job with the given ID." )
             else:
-                return True, job
+                return True, job.to_json()
         else:
             return self.make_error( "Request data may only be a string ID, a boolean, or null." )
-        
-        return True, jobs
 
     def handle_get_results( self, request_data: JSONData ) -> Tuple[bool, JSONData]:
 
@@ -131,9 +125,9 @@ class ManagerClient( Client ):
 
         return Job.from_json( self._make_request( 'get_job', id ) )
 
-    def get_jobs( self, running: Optional[bool] ) -> Job:
+    def get_jobs( self, running: Optional[bool] ) -> Set[Job]:
 
-        return Job.from_json( self._make_request( 'get_job', running ) )
+        return frozenset( Job.from_json( job ) for job in self._make_request( 'get_job', running ) )
  
     def get_results( self, id: str ) -> JSONData:
 
