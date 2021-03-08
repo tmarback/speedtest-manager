@@ -142,7 +142,13 @@ class JobMetadata( Base ):
             created = self.created,
         )
 
-class IDExistsError( RuntimeError ):
+class JobError( RuntimeError ):
+    """
+    Base type of exceptions related to job configuration.
+    """
+    pass
+
+class IDExistsError( JobError ):
     """
     Exception that indicates an attempt to add a new job with an existing ID.
     """
@@ -164,6 +170,47 @@ class IDExistsError( RuntimeError ):
         """
 
         return self._id
+
+class PastEndError( JobError ):
+    """
+    Exception that indicates an attempt to schedule an interval-based job with an
+    end date in the past.
+    """
+
+    def __init__( self, now: datetime, job: Job ):
+        """
+        Creates a new instance.
+
+        :param now: The current time used for comparison.
+        :param job: The job that was to be scheduled.
+        """
+
+        super().__init__( f"Job '{job.id} has end date in the past {job.end} (current time is {now})." )
+        self._now = now
+        self._job = job
+
+    @property
+    def now( self ) -> datetime:
+        """
+        The current time at the moment the error was generated.
+        """
+
+        return self._now
+
+    @property
+    def id( self ) -> str:
+        """
+        The ID of the job that triggered this error.
+        """
+        return self._job.id
+
+    @property
+    def end( self ) -> datetime:
+        """
+        The end time of the job that triggered this error.
+        """
+
+        return self._job.end
 
 class JobManager:
     """
@@ -352,6 +399,8 @@ class JobManager:
 
                 if job.interval:
                     _LOGGER.debug( "Creating an interval-triggered job." )
+                    if job.end < ( now := datetime.now( pytz.utc ) ):
+                        raise PastEndError( now, job )
                     trigger = IntervalTrigger( 
                         seconds = int( job.interval.total_seconds() ),
                         start_date = job.start if job.start is not None else datetime.now( pytz.utc ),

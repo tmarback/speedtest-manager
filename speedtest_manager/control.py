@@ -1,8 +1,8 @@
 import logging
-from typing import Optional, Union, Tuple, Mapping, Sequence, Set
+from typing import Optional, Union, Tuple, Mapping, Set
 
 from .connection import Server, Client, JSONData
-from .jobs import Job, JobManager, IDExistsError
+from .jobs import Job, JobManager, JobError
 
 _LOGGER = logging.getLogger( __name__ )
 
@@ -29,8 +29,8 @@ class ManagerServer( Server ):
         except ValueError:
             _LOGGER.exception( "Received invalid job JSON '%s'", str( request_data ) )
             return self.make_error( "The received data is not a valid job." )
-        except IDExistsError as e:
-            return self.make_error( f"There is already a job with the ID '{e.id}'." )
+        except JobError as e:
+            return self.make_error( str( e ) )
 
         return True, job.id
 
