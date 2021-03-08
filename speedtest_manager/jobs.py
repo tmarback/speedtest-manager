@@ -185,7 +185,7 @@ class PastEndError( JobError ):
         :param job: The job that was to be scheduled.
         """
 
-        super().__init__( f"Job '{job.id} has end date in the past {job.end} (current time is {now})." )
+        super().__init__( f"Job '{job.id}' has end date ({job.end}) in the past (current time is {now})." )
         self._now = now
         self._job = job
 

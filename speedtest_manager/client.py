@@ -12,7 +12,7 @@ from dateutil import parser
 import pytz
 
 from . import __version__
-from .control import ManagerClient
+from .control import ManagerClient, SpeedtestError
 from .logging import setup_logging
 from .jobs import Job
 
@@ -202,7 +202,10 @@ def main() -> None:
         raise ValueError( "Unsupported address family." )
 
     client = ManagerClient( family, address )
-    args.func( client, args )
+    try:
+        args.func( client, args )
+    except SpeedtestError as e:
+        print( f"Error: {e}" )
 
 if __name__ == '__main__':
     main()
