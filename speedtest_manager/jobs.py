@@ -354,7 +354,7 @@ class JobManager:
                     _LOGGER.debug( "Creating an interval-triggered job." )
                     trigger = IntervalTrigger( 
                         seconds = int( job.interval.total_seconds() ),
-                        start_date = job.start if job.start is not None else datetime.now(),
+                        start_date = job.start if job.start is not None else datetime.now( pytz.utc ),
                         end_date = job.end
                     )
                 else:
