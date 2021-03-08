@@ -62,7 +62,8 @@ def _run( args: Iterable[str], timeout: float ) -> subprocess.CompletedProcess:
     :return: The completed process.
     """
 
-    command = [ 'speedtest', *args ]
+    # Include license acceptance options to be safe
+    command = [ 'speedtest', '--accept-license', '--accept-gdpr', *args ]
 
     try:
         return subprocess.run( command, capture_output = True, timeout = timeout, check = True, text = True )
