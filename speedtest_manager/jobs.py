@@ -368,7 +368,7 @@ class JobManager:
                     args = [ job ],
                     trigger = trigger,
                     id = job.id,
-                    name = job.title,
+                    name = job.title if job.title else job.id,
                 )
             except ( IDExistsError, ConflictingIdError ) as e:
                 _LOGGER.debug( "Attempted to register duplicate ID '%s'.", job.id )
