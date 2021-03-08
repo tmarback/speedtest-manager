@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "speedtest-manager"
-version = "0.1.0"
+version = "0.1.6"
 description = "Manager service that uses Ookla's Speedtest CLI utility to perform measurements on the local network."
 authors = ["Thiago Marback <tmarback@sympho.dev>"]
 license = "MIT"
