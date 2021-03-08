@@ -254,7 +254,7 @@ class JobManager:
             'coalesce': True,
             'max_instances': 1
         }
-        self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults )
+        self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults, timezone = pytz.utc )
         self.scheduler.add_listener( self.job_stopped, mask = events.EVENT_JOB_REMOVED )
 
         _LOGGER.debug( "Manager initialized." )
