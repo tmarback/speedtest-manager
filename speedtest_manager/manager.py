@@ -5,6 +5,7 @@ import signal
 import socket
 from pathlib import Path
 
+from . import __version__
 from .jobs import JobManager
 from .control import ManagerServer
 from .logging import setup_logging
@@ -35,7 +36,7 @@ def main() -> None:
     signal.signal( signal.SIGINT,  shutdown )
 
     parser = argparse.ArgumentParser( description = "Main server process for a scheduled Speedtest tester." )
-    parser.add_argument( '--version', action = 'version', version = 'Speedtest Manager Server 0.1.0', help = "Display the current version and exit" )
+    parser.add_argument( '--version', action = 'version', version = f'Speedtest Manager Server {__version__}', help = "Display the current version and exit" )
     parser.add_argument( '-d', '--datadir', default = DEFAULT_DATADIR, type = Path, help = "The directory where data is stored" )
     parser.add_argument( '-w', '--workers', default = 5,               type = int,  help = "The number of workers to use for handling client connections" )
     

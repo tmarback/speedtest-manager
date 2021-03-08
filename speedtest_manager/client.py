@@ -11,6 +11,7 @@ from typing import Set
 from dateutil import parser
 import pytz
 
+from . import __version__
 from .control import ManagerClient
 from .logging import setup_logging
 from .jobs import Job
@@ -48,7 +49,7 @@ def parse_time( s: str ) -> datetime:
 def main() -> None:
 
     parser = argparse.ArgumentParser( description = "Main server process for a scheduled Speedtest tester." )
-    parser.add_argument( '--version', action = 'version', version = 'Speedtest Manager Client 0.1.0', help = "Display the current version and exit" )
+    parser.add_argument( '--version', action = 'version', version = f'Speedtest Manager Client {__version__}', help = "Display the current version and exit" )
     parser.add_argument( '-d', '--datadir', default = DEFAULT_DATADIR, type = Path, help = "The directory where data is stored, used only to calculate relative paths for Unix sockets" )
     
     logging_args = parser.add_argument_group( 'Logging Settings', description = "Arguments that controls logging output." )
