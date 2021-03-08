@@ -399,7 +399,7 @@ class JobManager:
 
                 if job.interval:
                     _LOGGER.debug( "Creating an interval-triggered job." )
-                    if job.end < ( now := datetime.now( pytz.utc ) ):
+                    if job.end is not None and job.end < ( now := datetime.now( pytz.utc ) ):
                         raise PastEndError( now, job )
                     trigger = IntervalTrigger( 
                         seconds = int( job.interval.total_seconds() ),
