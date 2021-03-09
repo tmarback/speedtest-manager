@@ -299,7 +299,8 @@ class JobManager:
         }
         job_defaults = {
             'coalesce': True,
-            'max_instances': 1
+            'max_instances': 1,
+            'misfire_grace_time': 5 * 60, # Can be up to 5 minutes late
         }
         self.scheduler = BackgroundScheduler( jobstores = jobstores, executors = executors, job_defaults = job_defaults, timezone = pytz.utc )
         self.scheduler.add_listener( self.job_stopped, mask = events.EVENT_JOB_REMOVED )
