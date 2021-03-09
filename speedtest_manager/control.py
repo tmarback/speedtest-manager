@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Union, Tuple, Mapping, Set
+from typing import Optional, Union, Tuple, Mapping, Set, Sequence
 
 from .connection import Server, Client, JSONData
 from .jobs import Job, JobManager, JobError
@@ -130,6 +130,12 @@ class ManagerClient( Client ):
 
         return frozenset( Job.from_json( job ) for job in self._make_request( 'get_job', running ) )
  
-    def get_results( self, id: str ) -> JSONData:
+    def get_results( self, id: Union[str, Sequence[str]] ) -> Union[JSONData, Mapping[str, JSONData]]:
 
-        return self._make_request( 'get_results', id )
+        if isinstance( id, str ):
+            return self._make_request( 'get_results', id )
+        else:
+            results = {}
+            for _id in id: # TODO: Turn this into a single call server-side
+                results[_id] = self._make_request( 'get_results', _id )
+            return results

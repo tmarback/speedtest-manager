@@ -167,12 +167,14 @@ def main() -> None:
 
     ##### Get results
 
-    get_results_parser = subparsers.add_parser( 'results', help = "Retrieves job results", description = "Retrieves the results obtained so far by a registered job." )
+    get_results_parser = subparsers.add_parser( 'results', help = "Retrieves job results", description = "Retrieves the results obtained so far by registered jobs." )
 
-    get_results_parser.add_argument( 'id', type = str, help = 'The ID of the job' )
+    get_results_parser.add_argument( 'id', type = str, nargs = '+', help = 'The ID of each job to get results for' )
 
     def get_results( client: ManagerClient, args ) -> None:
 
+        import sys
+        print( args.id, file = sys.stderr )
         results = client.get_results( args.id )
         print( json.dumps( results ) )
 
