@@ -111,6 +111,7 @@ class ManagerClient( Client ):
 
     def new_job( self, job: Job ) -> str:
         
+        _LOGGER.debug( "Creating job %s", job.to_json() )
         return self._make_request( 'new', job.to_json() )
 
     def stop_job( self, id: str ) -> Job:

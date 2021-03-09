@@ -4,9 +4,10 @@ import logging
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Optional, Set, Sequence
+from apscheduler.util import astimezone
 
 import pytz
 from apscheduler import events
@@ -16,9 +17,8 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import create_engine, Column, Integer, String, TIMESTAMP, Interval, Boolean
+from sqlalchemy import orm, create_engine, Column, Integer, String, TIMESTAMP, Interval, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session as SessionClass
 
 from . import speedtest
 from .connection import Data, JSONData
@@ -30,6 +30,9 @@ def _date_to_str( date: Optional[datetime] ) -> Optional[str]:
 
 def _str_to_date( date: Optional[str] ) -> Optional[datetime]:
     return datetime.fromisoformat( date ).astimezone( pytz.utc ) if date is not None else None
+
+def _to_timezone( date: Optional[datetime], tz: tzinfo ) -> Optional[datetime]:
+    return date.astimezone( tz ) if date is not None else None
 
 @dataclass( frozen = True )
 class Job( Data ):
@@ -119,8 +122,8 @@ class JobMetadata( Base ):
             server_id = job.server_id,
             server_name = job.server_name,
             interval = job.interval,
-            start = job.start,
-            end = job.end,
+            start = _to_timezone( job.start, pytz.utc ),
+            end = _to_timezone( job.end, pytz.utc ),
         )
 
     def export( self ) -> Job:
@@ -141,6 +144,18 @@ class JobMetadata( Base ):
             running = self.running,
             created = self.created,
         )
+
+    @orm.reconstructor
+    def insert_timezone( self ):
+        """
+        Ensures all timestamps have timezones attached.
+        """
+
+        if self.start is not None:
+            self.start = self.start.replace( tzinfo = pytz.utc )
+        if self.end is not None:
+            self.end = self.end.replace( tzinfo = pytz.utc )
+        self.created = self.created.replace( tzinfo = pytz.utc )
 
 class JobError( RuntimeError ):
     """
@@ -289,7 +304,7 @@ class JobManager:
 
         self.engine = create_engine( f'sqlite:///{database_path}' )
         Base.metadata.create_all( self.engine )
-        self.Session = sessionmaker( bind = self.engine )
+        self.Session = orm.sessionmaker( bind = self.engine )
 
         jobstores = {
             'default': SQLAlchemyJobStore( engine = self.engine )
@@ -363,12 +378,12 @@ class JobManager:
         return json.loads( results )
 
     @contextmanager
-    def transaction( self ) -> SessionClass:
+    def transaction( self ) -> orm.Session:
         """
         Provide a transactional scope around a series of operations.
         """
 
-        session: SessionClass = self.Session()
+        session: orm.Session = self.Session()
         try:
             yield session
             session.commit()
