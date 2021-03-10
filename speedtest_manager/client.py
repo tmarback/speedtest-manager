@@ -173,8 +173,6 @@ def main() -> None:
 
     def get_results( client: ManagerClient, args ) -> None:
 
-        import sys
-        print( args.id, file = sys.stderr )
         results = client.get_results( args.id )
         print( json.dumps( results ) )
 
