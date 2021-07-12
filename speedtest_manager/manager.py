@@ -4,6 +4,7 @@ import os
 import signal
 import socket
 from pathlib import Path
+from threading import Event
 
 from . import __version__
 from .jobs import JobManager
@@ -21,6 +22,8 @@ QUIET_LOGLEVEL   = logging.getLevelName( logging.WARNING )
 manager: JobManager
 server: ManagerServer
 
+quit_event: Event = Event()
+
 def shutdown( *_ ) -> None:
 
     logging.info( "Shutdown request received." )
@@ -29,6 +32,8 @@ def shutdown( *_ ) -> None:
     manager.shutdown()
 
     logging.info( "Shutdown completed." )
+
+    quit_event.set()
 
 def main() -> None:
 
@@ -106,6 +111,8 @@ def main() -> None:
 
     manager.start()
     server.start()
+
+    quit_event.wait() # Wait until its time to quit
 
 if __name__ == '__main__':
     main()
